@@ -1,0 +1,24 @@
+[project]
+name = "auto-foundry"
+version = "0.1.0"
+description = "Local MVP for discovering startup opportunities from discussion data."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "jinja2>=3.1.4",
+    "openai>=1.59.0",
+    "praw>=7.8.1",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.0.1",
+    "uvicorn>=0.32.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

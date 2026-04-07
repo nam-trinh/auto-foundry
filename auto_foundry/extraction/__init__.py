@@ -1,0 +1,1 @@
+"""Pain point extraction module."""

@@ -1,0 +1,1 @@
+"""Startup idea generation module."""
