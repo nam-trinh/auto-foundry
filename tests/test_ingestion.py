@@ -192,7 +192,7 @@ def test_github_issues_filters_prs_and_normalizes_issues() -> None:
 
     assert record is not None
     assert record.source == "github_issues"
-    assert record.source_id == "789"
+    assert record.source_id == "12"
     assert record.tags == ["bug", "support"]
     assert record.engagement == 8
 

@@ -6,7 +6,7 @@ from html import unescape
 from urllib.request import urlopen
 
 from auto_foundry.config import Settings
-from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck, datetime_from_unix
+from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck, TrackedThread, datetime_from_unix
 
 
 class HackerNewsAdapter:
@@ -33,8 +33,6 @@ class HackerNewsAdapter:
         return records
 
     def fetch_comments(self, record: dict[str, object], limit: int) -> list[NormalizedComment]:
-        if not self.settings.hn_include_comments:
-            return []
         comments: list[NormalizedComment] = []
         for comment_id in list(record.get("kids", []))[:limit]:
             item = self._get_json(f"{self.settings.hn_base_url}/item/{comment_id}.json")
@@ -55,6 +53,12 @@ class HackerNewsAdapter:
             )
         return comments
 
+    def fetch_thread_comments(self, thread: TrackedThread, limit: int) -> list[NormalizedComment]:
+        item = self._get_json(f"{self.settings.hn_base_url}/item/{thread.external_thread_id}.json")
+        if not isinstance(item, dict):
+            return []
+        return self.fetch_comments(item, limit)
+
     def normalize_record(self, record: dict[str, object]) -> NormalizedDiscussionRecord | None:
         if record.get("deleted") or record.get("dead"):
             return None
@@ -70,7 +74,7 @@ class HackerNewsAdapter:
             community=str(record.get("type") or "story"),
             title=title or "Untitled Hacker News item",
             body=body,
-            comments=self.fetch_comments(record, self.settings.hn_comment_limit),
+            comments=self.fetch_comments(record, self.settings.hn_comment_limit) if self.settings.hn_include_comments else [],
             created_at=datetime_from_unix(record.get("time")),
             author=str(record.get("by") or "unknown"),
             engagement=int(record.get("score") or 0) + len(record.get("kids", []) or []),

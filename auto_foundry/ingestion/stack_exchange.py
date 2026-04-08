@@ -9,7 +9,7 @@ from urllib.request import urlopen
 
 from auto_foundry.config import Settings
 from auto_foundry.ingestion.base import configured_stack_exchange_tags
-from auto_foundry.schemas import NormalizedDiscussionRecord, SourceHealthCheck
+from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck, TrackedThread
 
 
 class StackExchangeAdapter:
@@ -46,6 +46,9 @@ class StackExchangeAdapter:
         return records
 
     def fetch_comments(self, record: object, limit: int) -> list[object]:
+        return []
+
+    def fetch_thread_comments(self, thread: TrackedThread, limit: int) -> list[NormalizedComment]:
         return []
 
     def normalize_record(self, record: dict[str, object]) -> NormalizedDiscussionRecord | None:
@@ -86,6 +89,6 @@ def _clean_html(value: str) -> str:
 
 
 def _datetime_from_stack_exchange(value: object) -> datetime | None:
-    if not isinstance(value, int | float):
+    if not isinstance(value, (int, float)):
         return None
     return datetime.fromtimestamp(value, tz=timezone.utc)

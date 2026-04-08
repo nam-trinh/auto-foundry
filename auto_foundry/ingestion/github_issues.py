@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from auto_foundry.config import Settings
-from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck
+from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck, TrackedThread
 
 
 class GitHubIssuesAdapter:
@@ -39,8 +39,6 @@ class GitHubIssuesAdapter:
         return records
 
     def fetch_comments(self, record: dict[str, object], limit: int) -> list[NormalizedComment]:
-        if not self.settings.github_include_comments:
-            return []
         comments_url = record.get("comments_url")
         if not comments_url:
             return []
@@ -60,6 +58,21 @@ class GitHubIssuesAdapter:
             )
         return normalized_comments
 
+    def fetch_thread_comments(self, thread: TrackedThread, limit: int) -> list[NormalizedComment]:
+        health = self.healthcheck()
+        if not health.ok:
+            return []
+        url = (
+            f"https://api.github.com/repos/{self.settings.github_owner}/{self.settings.github_repo}"
+            f"/issues/{thread.external_thread_id}"
+        )
+        issue = self._get_json(url)
+        if not issue or not isinstance(issue, (list, dict)):
+            return []
+        if isinstance(issue, list):
+            return []
+        return self.fetch_comments(issue, limit)
+
     def normalize_record(self, record: dict[str, object]) -> NormalizedDiscussionRecord | None:
         if "pull_request" in record:
             return None
@@ -74,12 +87,12 @@ class GitHubIssuesAdapter:
         engagement = int(record.get("comments") or 0) + int(reactions.get("total_count") or 0)
         return NormalizedDiscussionRecord(
             source=self.source_name,
-            source_id=str(record.get("id") or record.get("number")),
+            source_id=str(record.get("number") or record.get("id")),
             url=str(record.get("html_url") or ""),
             community=f"{self.settings.github_owner}/{self.settings.github_repo}",
             title=title,
             body=body,
-            comments=self.fetch_comments(record, self.settings.github_comment_limit),
+            comments=self.fetch_comments(record, self.settings.github_comment_limit) if self.settings.github_include_comments else [],
             created_at=_datetime_from_github(record.get("created_at")),
             author=str(user.get("login") or "unknown"),
             engagement=engagement,

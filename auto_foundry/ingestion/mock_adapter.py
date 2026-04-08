@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from auto_foundry.ingestion.mock_data import SEED_DISCUSSIONS
-from auto_foundry.schemas import NormalizedDiscussionRecord, SourceHealthCheck
+from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck, TrackedThread
 
 
 class MockAdapter:
@@ -14,6 +14,9 @@ class MockAdapter:
         return [self.normalize_record(item) for item in SEED_DISCUSSIONS[:limit]]
 
     def fetch_comments(self, record: object, limit: int) -> list[object]:
+        return []
+
+    def fetch_thread_comments(self, thread: TrackedThread, limit: int) -> list[NormalizedComment]:
         return []
 
     def normalize_record(self, record: object) -> NormalizedDiscussionRecord:

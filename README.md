@@ -61,6 +61,74 @@ GITHUB_REPO=repo
 GITHUB_TOKEN=
 ```
 
+## Ingestion Scheduling
+
+The scheduler is local-first and intentionally simple. It uses scheduled polling rather than continuous scraping:
+
+```python
+from auto_foundry.ingestion.scheduler import scheduler_loop
+
+scheduler_loop()
+```
+
+For app-controlled execution, call one tick at a time:
+
+```python
+from auto_foundry.ingestion.scheduler import run_scheduler_tick
+
+results = run_scheduler_tick("auto_foundry.sqlite3")
+```
+
+Manual refresh functions reuse the same ingestion jobs:
+
+```python
+from auto_foundry.ingestion.scheduler import (
+    refresh_source_config_now,
+    refresh_tracked_thread_now,
+    run_reconciliation_now,
+)
+
+refresh_source_config_now("auto_foundry.sqlite3", "src-...")
+refresh_tracked_thread_now("auto_foundry.sqlite3", "thread-...")
+run_reconciliation_now("auto_foundry.sqlite3", "src-...")
+```
+
+Scheduler defaults:
+
+- Global tick: 1 hour.
+- Post discovery: every 3 hours.
+- Discovery overlap window: 12 hours.
+- Hot thread refresh: every 1 hour.
+- Warm thread refresh: every 6 hours.
+- Cold thread refresh: every 12 hours.
+- Archived threads older than 7 days: not refreshed automatically.
+- Reconciliation: every 24 hours over the last 7 days.
+
+Scheduler tables are created automatically by `init_db`:
+
+- `source_configs`: source type, query/target, enabled flag, post polling interval, overlap window, timestamps.
+- `ingestion_states`: last successful discovery, last attempted discovery, last reconciliation, optional last seen external item ID.
+- `ingestion_runs`: run ID, source config, job type, status, timestamps, fetched/inserted/updated/skipped counts, error message.
+- `tracked_threads`: source thread identity, first/last seen timestamps, comment refresh timestamp, observed comment count, activity status, active polling flag.
+- `ingested_comments`: source/comment unique identity and normalized comment payload.
+- `analysis_dirty_markers`: dirty markers emitted after successful thread/comment upserts so analysis can run separately.
+
+Design decisions:
+
+- Overlap windows are used because forum APIs and listings can be delayed, reordered, or retried. Re-reading a recent window is safer than trusting a strict timestamp checkpoint.
+- Post discovery and comment refresh are separate because new-thread discovery and active-thread comment polling have different schedules and cost profiles.
+- Idempotency is guaranteed with stable keys like `source:source_id` for discussions, `source_type + external_thread_id` for tracked threads, and `source_type + external_comment_id` for comments. Jobs use upserts, so overlapping windows and retries do not duplicate data.
+- Active thread decay is based on source creation age: under 24h is hot, 1-3 days is warm, 3-7 days is cold, and older than 7 days is archived.
+- Checkpoints for successful discovery and reconciliation are updated only after successful jobs. Failed jobs record an ingestion run error without advancing the success checkpoint.
+
+To add a new source adapter:
+
+- Implement the `SourceAdapter` protocol in `auto_foundry/ingestion/base.py`.
+- Return `NormalizedDiscussionRecord` and `NormalizedComment` models.
+- Add the adapter to the scheduler adapter map.
+- Make fetch methods bounded by `limit` and safe to retry.
+- Keep source-specific API details inside the adapter; scheduler and persistence should not know the API shape.
+
 ## Run
 
 ```bash

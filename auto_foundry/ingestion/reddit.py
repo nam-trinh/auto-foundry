@@ -6,7 +6,7 @@ import praw
 
 from auto_foundry.config import Settings
 from auto_foundry.ingestion.base import configured_subreddits
-from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck, datetime_from_unix
+from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck, TrackedThread, datetime_from_unix
 
 
 class RedditAdapter:
@@ -29,12 +29,7 @@ class RedditAdapter:
         if not health.ok:
             return []
 
-        reddit = praw.Reddit(
-            client_id=self.settings.reddit_client_id,
-            client_secret=self.settings.reddit_client_secret,
-            user_agent=self.settings.reddit_user_agent,
-            check_for_async=False,
-        )
+        reddit = self._client()
         records: list[NormalizedDiscussionRecord] = []
         subreddits = configured_subreddits(self.settings)
         per_subreddit_limit = max(1, limit // max(len(subreddits), 1))
@@ -50,9 +45,14 @@ class RedditAdapter:
                     return records
         return records
 
-    def fetch_comments(self, record: Any, limit: int) -> list[NormalizedComment]:
-        if not self.settings.reddit_include_comments:
+    def fetch_thread_comments(self, thread: TrackedThread, limit: int) -> list[NormalizedComment]:
+        health = self.healthcheck()
+        if not health.ok:
             return []
+        submission = self._client().submission(id=thread.external_thread_id)
+        return self.fetch_comments(submission, limit)
+
+    def fetch_comments(self, record: Any, limit: int) -> list[NormalizedComment]:
         record.comments.replace_more(limit=0)
         comments: list[NormalizedComment] = []
         for comment in record.comments.list()[:limit]:
@@ -80,7 +80,7 @@ class RedditAdapter:
         subreddit = getattr(record, "subreddit", None)
         permalink = getattr(record, "permalink", None)
         url = f"https://www.reddit.com{permalink}" if permalink else getattr(record, "url", None)
-        comments = self.fetch_comments(record, self.settings.reddit_comment_limit)
+        comments = self.fetch_comments(record, self.settings.reddit_comment_limit) if self.settings.reddit_include_comments else []
         return NormalizedDiscussionRecord(
             source=self.source_name,
             source_id=str(getattr(record, "id", "")),
@@ -107,3 +107,11 @@ class RedditAdapter:
         if mode == "top":
             return subreddit.top(limit=limit)
         return subreddit.hot(limit=limit)
+
+    def _client(self) -> praw.Reddit:
+        return praw.Reddit(
+            client_id=self.settings.reddit_client_id,
+            client_secret=self.settings.reddit_client_secret,
+            user_agent=self.settings.reddit_user_agent,
+            check_for_async=False,
+        )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from auto_foundry.config import Settings
-from auto_foundry.schemas import NormalizedDiscussionRecord, SourceHealthCheck
+from auto_foundry.schemas import NormalizedComment, NormalizedDiscussionRecord, SourceHealthCheck, TrackedThread
 
 
 class SourceAdapter(Protocol):
@@ -17,6 +17,9 @@ class SourceAdapter(Protocol):
 
     def fetch_comments(self, record: Any, limit: int) -> list[Any]:
         """Fetch source-specific comments when supported."""
+
+    def fetch_thread_comments(self, thread: TrackedThread, limit: int) -> list[NormalizedComment]:
+        """Refresh comments for a known tracked thread."""
 
     def normalize_record(self, record: Any) -> NormalizedDiscussionRecord | None:
         """Normalize one source-specific record. Return None to skip it."""
