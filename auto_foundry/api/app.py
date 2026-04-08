@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -16,20 +17,63 @@ from auto_foundry.db.repository import (
     upsert_discussions,
 )
 from auto_foundry.ingestion.service import fetch_discussions
+from auto_foundry.llm.openai_client import LLMClient
 from auto_foundry.pipeline import run_pipeline
+from auto_foundry.schemas import LLMHealthStatus
 
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app = FastAPI(title="Auto Foundry", version="0.1.0")
+logger = logging.getLogger(__name__)
+llm_status_cache = LLMHealthStatus(
+    provider="openai",
+    model="unknown",
+    configured=False,
+    reachable=False,
+    message="not_checked",
+)
 
 
 @app.on_event("startup")
 def startup() -> None:
     settings = get_settings()
+    global llm_status_cache
     init_db(settings.db_path)
     with connect(settings.db_path) as connection:
         upsert_discussions(connection, fetch_discussions(settings, include_external=False))
+    llm_status_cache = LLMClient(settings).check_connectivity()
+    if not llm_status_cache.configured:
+        print(_format_llm_startup_message(llm_status_cache))
+        logger.info(
+            "LLM startup check skipped provider=%s model=%s reason=%s",
+            llm_status_cache.provider,
+            llm_status_cache.model,
+            llm_status_cache.message,
+        )
+    elif llm_status_cache.reachable:
+        print(_format_llm_startup_message(llm_status_cache))
+        logger.info(
+            "LLM startup check passed provider=%s model=%s",
+            llm_status_cache.provider,
+            llm_status_cache.model,
+        )
+    else:
+        print(_format_llm_startup_message(llm_status_cache))
+        logger.warning(
+            "LLM startup check failed provider=%s model=%s message=%s",
+            llm_status_cache.provider,
+            llm_status_cache.model,
+            llm_status_cache.message,
+        )
+
+
+def _format_llm_startup_message(status: LLMHealthStatus) -> str:
+    if not status.configured:
+        return f"LLM startup check skipped provider={status.provider} model={status.model} reason={status.message}"
+    if status.reachable:
+        return f"LLM startup check passed provider={status.provider} model={status.model}"
+    return f"LLM startup check failed provider={status.provider} model={status.model} message={status.message}"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -57,8 +101,11 @@ def dashboard(request: Request) -> HTMLResponse:
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "llm": llm_status_cache.model_dump(),
+    }
 
 
 @app.post("/api/pipeline/run")

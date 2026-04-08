@@ -61,6 +61,14 @@ class SourceHealthCheck(BaseModel):
     message: str
 
 
+class LLMHealthStatus(BaseModel):
+    provider: str
+    model: str
+    configured: bool
+    reachable: bool
+    message: str
+
+
 class SourceConfig(BaseModel):
     id: str
     source_type: str

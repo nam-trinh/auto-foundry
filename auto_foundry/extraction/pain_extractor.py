@@ -37,16 +37,24 @@ PAIN_MARKERS = [
 
 
 def extract_pain_signals(discussions: list[Discussion], llm_client: LLMClient) -> tuple[list[PainSignal], str]:
+    print(f"[EXTRACT] start discussions={len(discussions)} llm_configured={llm_client.is_configured}")
     llm_signals = _extract_with_llm(discussions, llm_client)
     if llm_signals:
+        print(f"[EXTRACT] completed source=llm count={len(llm_signals)}")
         return llm_signals, "llm"
-    return _extract_with_rules(discussions), "fallback"
+    fallback_signals = _extract_with_rules(discussions)
+    print(f"[EXTRACT] completed source=fallback count={len(fallback_signals)}")
+    return fallback_signals, "fallback"
 
 
 def _extract_with_llm(discussions: list[Discussion], llm_client: LLMClient) -> list[PainSignal]:
     prompt = _build_extraction_prompt(discussions)
-    payload = llm_client.generate_json(prompt)
-    if not payload or "pain_signals" not in payload:
+    payload = llm_client.generate_json(prompt, max_output_tokens=2048)
+    if not payload:
+        print("[EXTRACT] llm_result missing_or_invalid")
+        return []
+    if "pain_signals" not in payload:
+        print(f"[EXTRACT] llm_result missing pain_signals keys={list(payload.keys())}")
         return []
 
     signals: list[PainSignal] = []
@@ -65,8 +73,13 @@ def _extract_with_llm(discussions: list[Discussion], llm_client: LLMClient) -> l
                     source="llm",
                 )
             )
-    except (KeyError, TypeError, ValueError, ValidationError):
+    except (KeyError, TypeError, ValueError, ValidationError) as exc:
+        print(
+            f"[EXTRACT] llm_result validation_failed index={index} "
+            f"error_type={type(exc).__name__} message={str(exc)[:240]}"
+        )
         return []
+    print(f"[EXTRACT] llm_result accepted count={len(signals)}")
     return signals
 
 
@@ -78,7 +91,8 @@ def _build_extraction_prompt(discussions: list[Discussion]) -> str:
         "Extract startup opportunity pain signals from these discussions. "
         "Return strict JSON with key pain_signals containing objects with "
         "id, discussion_id, summary, quote, severity 1-5, and theme_hint. "
-        "Prefer concise business-oriented summaries.\n\n"
+        "Return at most one pain signal per discussion. Keep summaries concise and "
+        "theme_hint short, using 2-5 words. Keep quotes brief. \n\n"
         f"{serialized}"
     )
 
