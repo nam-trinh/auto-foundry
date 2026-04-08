@@ -20,6 +20,7 @@ class Settings:
     llm_max_output_tokens: int
     db_path: str
     ingestion_source: str = "mock"
+    ingestion_sources: list[str] | None = None
     ingestion_limit: int = 25
     reddit_client_id: str | None = None
     reddit_client_secret: str | None = None
@@ -57,6 +58,7 @@ def get_settings() -> Settings:
         llm_max_output_tokens=int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "1200")),
         db_path=os.getenv("AUTO_FOUNDRY_DB_PATH", "auto_foundry.sqlite3"),
         ingestion_source=os.getenv("INGESTION_SOURCE", "mock"),
+        ingestion_sources=_split_csv(os.getenv("INGESTION_SOURCES", "").strip()),
         ingestion_limit=int(os.getenv("INGESTION_LIMIT", "25")),
         reddit_client_id=os.getenv("REDDIT_CLIENT_ID") or None,
         reddit_client_secret=os.getenv("REDDIT_CLIENT_SECRET") or None,
@@ -93,3 +95,30 @@ def _split_csv(value: str) -> list[str]:
 
 def _split_semicolon(value: str) -> list[str]:
     return [item.strip() for item in value.split(";") if item.strip()]
+
+
+def configured_ingestion_sources(settings: Settings) -> list[str]:
+    sources = settings.ingestion_sources or []
+    if sources:
+        return _normalize_sources(sources)
+    return _normalize_sources([settings.ingestion_source])
+
+
+def should_include_mock_source(settings: Settings) -> bool:
+    if settings.ingestion_sources:
+        return "mock" in configured_ingestion_sources(settings)
+    return True
+
+
+def _normalize_sources(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = value.strip()
+        if not item:
+            continue
+        if item in seen:
+            continue
+        seen.add(item)
+        normalized.append(item)
+    return normalized or ["mock"]

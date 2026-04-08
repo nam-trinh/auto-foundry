@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from auto_foundry.config import Settings
+from auto_foundry.config import Settings, configured_ingestion_sources, should_include_mock_source
 from auto_foundry.ingestion.github_issues import GitHubIssuesAdapter
 from auto_foundry.ingestion.hacker_news import HackerNewsAdapter
 from auto_foundry.ingestion.mock_adapter import MockAdapter
@@ -23,6 +23,8 @@ def _settings(db_path: str = "test.sqlite3", **overrides: object) -> Settings:
         "llm_timeout_seconds": 1,
         "llm_max_output_tokens": 200,
         "db_path": db_path,
+        "ingestion_source": "mock",
+        "ingestion_sources": None,
     }
     values.update(overrides)
     return Settings(**values)
@@ -79,6 +81,23 @@ def test_ingestion_service_deduplicates_external_records(monkeypatch) -> None:
     records = fetch_normalized_records(settings)
 
     assert [item.stable_discussion_id for item in records].count(duplicate.stable_discussion_id) == 1
+
+
+def test_configured_ingestion_sources_supports_list_and_single_fallback() -> None:
+    list_settings = _settings(ingestion_sources=["mock", "hacker_news", "reddit", "mock"])
+    single_settings = _settings(ingestion_source="hacker_news", ingestion_sources=None)
+
+    assert configured_ingestion_sources(list_settings) == ["mock", "hacker_news", "reddit"]
+    assert configured_ingestion_sources(single_settings) == ["hacker_news"]
+    assert should_include_mock_source(list_settings) is True
+    assert should_include_mock_source(single_settings) is True
+
+
+def test_explicit_ingestion_sources_can_disable_mock() -> None:
+    settings = _settings(ingestion_sources=["hacker_news", "reddit"], ingestion_source="mock")
+
+    assert configured_ingestion_sources(settings) == ["hacker_news", "reddit"]
+    assert should_include_mock_source(settings) is False
 
 
 def test_reddit_normalization_from_praw_like_objects() -> None:
@@ -209,3 +228,33 @@ def test_external_adapter_failure_falls_back_to_mock_records() -> None:
 
     assert len(records) == 5
     assert all(record.raw_metadata.get("mock") is True for record in records)
+
+
+def test_fetch_normalized_records_supports_multiple_sources(monkeypatch) -> None:
+    extra_record = NormalizedDiscussionRecord(
+        source="reddit",
+        source_id="extra-1",
+        title="Extra record",
+        body="Fetched from reddit",
+        raw_metadata={"mock": False},
+    )
+
+    class MultiAdapter:
+        source_name = "reddit"
+
+        def __init__(self, settings: Settings) -> None:
+            self.settings = settings
+
+        def healthcheck(self) -> SourceHealthCheck:
+            return SourceHealthCheck(source="reddit", ok=True, message="ok")
+
+        def fetch_seed_posts(self, limit: int) -> list[NormalizedDiscussionRecord]:
+            return [extra_record]
+
+    monkeypatch.setitem(EXTERNAL_ADAPTERS, "reddit", MultiAdapter)
+    settings = _settings(ingestion_sources=["mock", "reddit"], ingestion_limit=5)
+
+    records = fetch_normalized_records(settings)
+
+    assert any(record.stable_discussion_id == "reddit:extra-1" for record in records)
+    assert any(record.raw_metadata.get("mock") is True for record in records)

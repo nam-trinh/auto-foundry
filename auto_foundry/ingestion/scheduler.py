@@ -5,7 +5,7 @@ import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
-from auto_foundry.config import Settings, get_settings
+from auto_foundry.config import Settings, configured_ingestion_sources, get_settings
 from auto_foundry.db.database import connect, init_db
 from auto_foundry.db.ingestion_repository import (
     ensure_source_config,
@@ -78,7 +78,7 @@ def run_scheduler_tick(
     results: list[IngestionJobResult] = []
 
     with connect(path) as connection:
-        ensure_config_from_settings(connection, settings)
+        ensure_configs_from_settings(connection, settings)
         for config in list_enabled_source_configs(connection):
             if is_post_discovery_due(connection, config, current_time):
                 results.append(run_post_discovery_job(connection, settings, config, current_time))
@@ -90,17 +90,20 @@ def run_scheduler_tick(
     return results
 
 
-def ensure_config_from_settings(connection, settings: Settings) -> SourceConfig:
-    source_type = settings.ingestion_source or "mock"
-    query = _query_from_settings(settings)
-    return ensure_source_config(
-        connection,
-        source_type=source_type,
-        query=query,
-        polling_interval_minutes=DEFAULT_DISCOVERY_INTERVAL_MINUTES,
-        overlap_window_minutes=DEFAULT_OVERLAP_WINDOW_MINUTES,
-        enabled=True,
-    )
+def ensure_configs_from_settings(connection, settings: Settings) -> list[SourceConfig]:
+    configs: list[SourceConfig] = []
+    for source_type in configured_ingestion_sources(settings):
+        configs.append(
+            ensure_source_config(
+                connection,
+                source_type=source_type,
+                query=_query_from_settings(settings, source_type),
+                polling_interval_minutes=DEFAULT_DISCOVERY_INTERVAL_MINUTES,
+                overlap_window_minutes=DEFAULT_OVERLAP_WINDOW_MINUTES,
+                enabled=True,
+            )
+        )
+    return configs
 
 
 def is_post_discovery_due(connection, config: SourceConfig, now: datetime) -> bool:
@@ -362,14 +365,14 @@ def _settings_for_config(settings: Settings, config: SourceConfig) -> Settings:
     return settings
 
 
-def _query_from_settings(settings: Settings) -> str:
-    if settings.ingestion_source == "reddit":
+def _query_from_settings(settings: Settings, source_type: str) -> str:
+    if source_type == "reddit":
         return ",".join(settings.reddit_subreddits or [])
-    if settings.ingestion_source in {"hacker_news", "hn"}:
+    if source_type in {"hacker_news", "hn"}:
         return settings.hn_listing
-    if settings.ingestion_source in {"stack_exchange", "stackexchange"}:
+    if source_type in {"stack_exchange", "stackexchange"}:
         return ";".join(settings.stack_exchange_tags or [])
-    if settings.ingestion_source in {"github_issues", "github"}:
+    if source_type in {"github_issues", "github"}:
         if settings.github_owner and settings.github_repo:
             return f"{settings.github_owner}/{settings.github_repo}"
         return ""

@@ -25,6 +25,7 @@ def _settings(db_path: str, **overrides: object) -> Settings:
         "llm_max_output_tokens": 200,
         "db_path": db_path,
         "ingestion_source": "mock",
+        "ingestion_sources": None,
         "ingestion_limit": 25,
     }
     values.update(overrides)
@@ -155,6 +156,19 @@ def test_scheduler_tick_creates_config_and_runs_jobs(tmp_path) -> None:
         assert connection.execute("SELECT COUNT(*) FROM source_configs").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM ingestion_runs").fetchone()[0] >= 2
         assert connection.execute("SELECT COUNT(*) FROM tracked_threads").fetchone()[0] > 0
+
+
+def test_scheduler_tick_registers_multiple_source_configs(tmp_path) -> None:
+    db_path = str(tmp_path / "multi.sqlite3")
+    settings = _settings(db_path, ingestion_sources=["mock", "hacker_news"], ingestion_source="mock")
+    now = datetime(2026, 4, 8, 12, tzinfo=timezone.utc)
+
+    run_scheduler_tick(db_path, settings=settings, now=now)
+
+    with connect(db_path) as connection:
+        rows = connection.execute("SELECT source_type, query FROM source_configs ORDER BY source_type").fetchall()
+
+    assert [tuple(row) for row in rows] == [("hacker_news", "askstories"), ("mock", "local-seed")]
 
 
 def test_reconciliation_updates_only_reconciliation_checkpoint(tmp_path) -> None:

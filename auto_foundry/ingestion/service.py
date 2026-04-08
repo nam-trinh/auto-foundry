@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from auto_foundry.config import Settings
+from auto_foundry.config import Settings, configured_ingestion_sources, should_include_mock_source
 from auto_foundry.ingestion.github_issues import GitHubIssuesAdapter
 from auto_foundry.ingestion.hacker_news import HackerNewsAdapter
 from auto_foundry.ingestion.mock_adapter import MockAdapter
@@ -21,24 +21,31 @@ EXTERNAL_ADAPTERS = {
 
 
 def fetch_normalized_records(settings: Settings, include_external: bool = True) -> list[NormalizedDiscussionRecord]:
-    mock_records = MockAdapter().fetch_seed_posts(settings.ingestion_limit)
-    if not include_external or settings.ingestion_source == "mock":
-        return _dedupe_records(mock_records)
+    requested_sources = configured_ingestion_sources(settings)
+    records: list[NormalizedDiscussionRecord] = []
 
-    adapter_class = EXTERNAL_ADAPTERS.get(settings.ingestion_source)
-    if adapter_class is None:
-        return _dedupe_records(mock_records)
+    if should_include_mock_source(settings) or not include_external:
+        records.extend(MockAdapter().fetch_seed_posts(settings.ingestion_limit))
 
-    try:
-        adapter = adapter_class(settings)
-        health = adapter.healthcheck()
-        if not health.ok:
-            return _dedupe_records(mock_records)
-        external_records = adapter.fetch_seed_posts(settings.ingestion_limit)
-    except Exception:
-        external_records = []
+    if not include_external:
+        return _dedupe_records(records)
 
-    return _dedupe_records([*mock_records, *external_records])
+    for source_name in requested_sources:
+        if source_name == "mock":
+            continue
+        adapter_class = EXTERNAL_ADAPTERS.get(source_name)
+        if adapter_class is None:
+            continue
+        try:
+            adapter = adapter_class(settings)
+            health = adapter.healthcheck()
+            if not health.ok:
+                continue
+            records.extend(adapter.fetch_seed_posts(settings.ingestion_limit))
+        except Exception:
+            continue
+
+    return _dedupe_records(records)
 
 
 def fetch_discussions(settings: Settings, include_external: bool = True) -> list[Discussion]:
@@ -46,13 +53,19 @@ def fetch_discussions(settings: Settings, include_external: bool = True) -> list
 
 
 def healthcheck_sources(settings: Settings) -> list[SourceHealthCheck]:
-    checks = [MockAdapter().healthcheck()]
-    adapter_class = EXTERNAL_ADAPTERS.get(settings.ingestion_source)
-    if adapter_class is not None:
+    checks: list[SourceHealthCheck] = []
+    for source_name in configured_ingestion_sources(settings):
+        if source_name == "mock":
+            checks.append(MockAdapter().healthcheck())
+            continue
+        adapter_class = EXTERNAL_ADAPTERS.get(source_name)
+        if adapter_class is None:
+            checks.append(SourceHealthCheck(source=source_name, ok=False, message="Unknown ingestion source."))
+            continue
         try:
             checks.append(adapter_class(settings).healthcheck())
         except Exception as exc:
-            checks.append(SourceHealthCheck(source=settings.ingestion_source, ok=False, message=str(exc)))
+            checks.append(SourceHealthCheck(source=source_name, ok=False, message=str(exc)))
     return checks
 
 

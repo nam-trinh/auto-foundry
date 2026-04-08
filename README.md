@@ -16,14 +16,25 @@ Edit `.env`:
 ```bash
 OPENAI_API_KEY=your_key_here
 LLM_MODEL=gpt-5-mini
-INGESTION_SOURCE=mock
+INGESTION_SOURCES=mock
 ```
 
 Use `gpt-5-mini` for cheaper development runs. Switch to `gpt-5`, `o1`, or another supported OpenAI model by changing `LLM_MODEL`.
 
 ## Source Ingestion
 
-Auto Foundry always keeps local mock seed data available. By default, `INGESTION_SOURCE=mock` means the pipeline uses mock data only. If you set an external source, the pipeline uses mock plus that external source and falls back to mock-only if the external adapter is not configured or fails.
+Auto Foundry supports single-source and multi-source ingestion.
+
+- Preferred: `INGESTION_SOURCES=mock,hacker_news,reddit`
+- Backward-compatible: `INGESTION_SOURCE=hacker_news`
+
+If `mock` is included, deterministic local seed data is always loaded. Any configured external source is appended and deduplicated. If an external adapter is not configured or fails, the rest of the configured sources still run.
+
+Legacy behavior is preserved:
+
+- `INGESTION_SOURCE=hacker_news` means mock plus Hacker News.
+- `INGESTION_SOURCES=hacker_news,reddit` means only Hacker News and Reddit.
+- `INGESTION_SOURCES=mock,hacker_news,reddit` means mock plus both external sources.
 
 Supported source adapters:
 
@@ -36,7 +47,7 @@ Supported source adapters:
 Reddit requires API credentials:
 
 ```bash
-INGESTION_SOURCE=reddit
+INGESTION_SOURCES=mock,reddit
 REDDIT_CLIENT_ID=your_client_id
 REDDIT_CLIENT_SECRET=your_client_secret
 REDDIT_USER_AGENT=auto-foundry-local/0.1
@@ -48,14 +59,14 @@ REDDIT_INCLUDE_COMMENTS=false
 Other source examples:
 
 ```bash
-INGESTION_SOURCE=hacker_news
+INGESTION_SOURCES=mock,hacker_news
 HN_LISTING=askstories
 
-INGESTION_SOURCE=stack_exchange
+INGESTION_SOURCES=mock,stack_exchange
 STACK_EXCHANGE_SITE=stackoverflow
 STACK_EXCHANGE_TAGS=python;fastapi
 
-INGESTION_SOURCE=github_issues
+INGESTION_SOURCES=mock,github_issues
 GITHUB_OWNER=owner
 GITHUB_REPO=repo
 GITHUB_TOKEN=
